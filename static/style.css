@@ -9,14 +9,23 @@ body {
     flex: none;
     min-width: 50%;
     max-width: 50%;
-    min-height: 24em;
-    text-align: center;
+    text-align: left;
+
+    font-size: 150%;
+}
+
+p.reference {
+    font-weight: bold;
 }
 
 .front {
-    background: red;
+    background: white;
 }
 
 .back {
-    background: green;
+    background: lightgray;
+}
+
+.lost {
+    font-weight: bold;
 }
