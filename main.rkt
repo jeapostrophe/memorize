@@ -23,66 +23,83 @@
         (set! word-count (+ word-count (length ws)))
         ws))
     (values word-count word-verses))
-  
-  (struct db-entry (card score wc) #:prefab)
-  (define (db-entry<= x y)
-    (match-define (db-entry _ xs xwc) x)
-    (match-define (db-entry _ ys ywc) y)
-    (define xc (/ xs xwc))
-    (define yc (/ ys ywc))
 
-    (cond
-      ;; If something is complete, then put it at the end with high
-      ;; probability
-      [(= xc 1)
-       (> (random) 0.1)]
-      [(= yc 1)
-       (< (random) 0.9)]
-      ;; When they are close in length, sort by completion
-      [(< (abs (- xwc ywc)) 5)
-       (<= xc yc)]
-      ;; If not, then if it is shorter, then put it first
-      [else
-       (<= xwc ywc)]))
+  (struct db-entry1 (card score wc ts) #:prefab)
+  (define (db-entry<= x y)
+    (define (proj x)
+      (match-define (db-entry1 _ xs xwc xts) x)
+      (define xc (/ xs xwc))
+      (define same-day?
+        (<= (abs (- xts (current-seconds)))
+            (* 24 60 60)))
+      (cond
+        [(or same-day? (= xc 1))
+         ;; The time is big, so we put it later
+         xts]
+        [else
+         ;; This puts things with the same word count in the same spot
+         ;; and then the fractional part is the completion, so less
+         ;; complete things come first.
+         (+ xwc xc)]))
+    (<= (proj x) (proj y)))
 
   (define current-entry #f)
   (define other-entries #f)
 
   (define (current-modify-score! f)
-    (match-define (db-entry card score wc) current-entry)
+    (match-define (db-entry1 card score wc ts) current-entry)
     (set! current-entry
-          (struct-copy db-entry current-entry
+          (struct-copy db-entry1 current-entry
+                       [ts (current-seconds)]
                        [score (min wc (max 0 (f score)))]))
     (save-db!))
 
   (define (sort-db db-l)
     (sort db-l db-entry<=))
-  (define (save-db!)
+  (define (write-db!)
     (write-to-file
      (sort-db (cons current-entry other-entries))
      db.rktd
-     #:exists 'replace)
+     #:exists 'replace))
+  (define (save-db!)
+    (write-db!)
     (load-db!))
 
   (define (load-db!)
+    (define old
+      (if (file-exists? db.rktd)
+        (file->value db.rktd)
+        empty))
+    (define old-i->score*ts
+      (let ()
+        (struct db-entry (card score wc) #:prefab)
+        (for/hasheq ([de (in-list old)])
+          (match de
+            [(db-entry c s _)
+             (values c (cons s 0))]
+            [(db-entry1 card score _ ts)
+             (values card (cons score ts))]))))
+
     (define r
-      (cond
-        [(file-exists? db.rktd)
-         (file->value db.rktd)]
-        [else
-         (sort-db
-          (for/list ([i (in-naturals)]
-                     [s (in-vector source)])
-            (match-define (list reference verses) s)
-            (define-values (wc _) (get-word-count verses))
-            (db-entry i 0 wc)))]))
+      (sort-db
+       (for/list ([i (in-naturals)]
+                  [s (in-vector source)])
+         (match-define (list reference verses) s)
+         (define-values (wc _) (get-word-count verses))
+         (define-values (old-score old-ts)
+           (match (hash-ref old-i->score*ts i #f)
+             [(cons s t) (values s t)]
+             [#f (values 0 0)]))
+         (db-entry1 i old-score wc old-ts))))
 
     (set! current-entry (first r))
-    (set! other-entries (rest r)))
+    (set! other-entries (rest r))
+
+    (write-db!))
   (load-db!)
 
   (define (current-format)
-    (match-define (db-entry card score _) current-entry)
+    (match-define (db-entry1 card score _ _) current-entry)
     (match-define (list reference verses)
       (vector-ref source card))
     (define-values (word-count word-verses)
@@ -105,16 +122,16 @@
                        (for/list ([w (in-list wv)]
                                   [i (in-naturals this-count)])
                          (if (memq i lost-indexes)
-                             (if lose?
-                                 (cdata #f #f
-                                        (string-append*
-                                         (map (λ (c)
-                                                (if (char-alphabetic? c)
-                                                    "&#8209;"
-                                                    (string c)))
-                                              (string->list w))))
-                                 `(span ([class "lost"]) ,w))
-                             w))
+                           (if lose?
+                             (cdata #f #f
+                                    (string-append*
+                                     (map (λ (c)
+                                            (if (char-alphabetic? c)
+                                              "&#8209;"
+                                              (string c)))
+                                          (string->list w))))
+                             `(span ([class "lost"]) ,w))
+                           w))
                        " "))
               (set! this-count
                     (+ this-count
