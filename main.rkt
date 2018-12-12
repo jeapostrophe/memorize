@@ -13,19 +13,6 @@
 (define (clamp m x M)
   (min M (max m x)))
 
-;; XXX move to raart
-(define (para mw s #:halign [halign 'left])
-  (para* mw (map text (string-split s " ")) #:halign halign))
-(define (para* mw rs #:halign [halign 'left])
-  (for/fold ([all-rows (list (blank))]
-             #:result
-             (vappend* #:halign halign (reverse all-rows)))
-            ([r (in-list rs)])
-    (match-define (cons last-row rows) all-rows)
-    (if (< (+ (raart-w last-row) (raart-w r)) mw)
-      (cons (happend last-row (text " ") r) rows)
-      (cons r all-rows))))
-
 (struct card (sc ref vs))
 
 (define-struct-define memorize-define memorize)
