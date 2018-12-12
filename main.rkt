@@ -22,6 +22,7 @@
       (card sc ref vs)))
   (define sorted (sort unsorted >= #:key card-sc))
   (match-define (cons next after) sorted)
+  
   (match-define (card score ref vs) next)
   (define verses (string-split vs NEL))
   (define verses-words (map (λ (v) (string-split v " ")) verses))
@@ -48,21 +49,7 @@
                                      (style 'bold (text w))
                                      (text (regexp-replace* #px"\\w" w "-")))
                                    (text w))))
-                        (blank))))))
-
-  (define (save! success?)
-    (define adj (if success? sub1 add1))
-    (define new-sorted
-      (sort (cons (card (adj score) ref vs) after)
-            >= #:key card-sc))
-    (with-output-to-file the-db
-      #:exists 'replace
-      (λ ()
-        (for ([c (in-list new-sorted)])
-          (match-define (card sc ref vs) c)
-          (printf "~a\t~a\t~a\n" sc ref vs))))
-
-    (make-memorize the-db))
+                        (blank))))))  
 
   (define base (word #:fps 0.0 #:label "Memorize" #:return (void)))
   (define hidden
@@ -82,6 +69,20 @@
             ["<right>" (save! #t)]
             ["q" #f]
             [_ revealed])))
+
+  (define (save! success?)
+    (define adj (if success? sub1 add1))
+    (define new-sorted
+      (sort (cons (card (adj score) ref vs) after)
+            >= #:key card-sc))
+    (with-output-to-file the-db
+      #:exists 'replace
+      (λ ()
+        (for ([c (in-list new-sorted)])
+          (match-define (card sc ref vs) c)
+          (printf "~a\t~a\t~a\n" sc ref vs))))
+
+    (make-memorize the-db (add1 completed)))
 
   hidden)
 
