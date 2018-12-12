@@ -2,12 +2,35 @@
 (require racket/string
          racket/file
          racket/list
-         racket/match
-         web-server/dispatch
-         web-server/http
-         pkg-index/official/jsonp
-         xml
-         json)
+         racket/match)
+
+(define (get-word-count verses)
+  (define word-count 0)
+  (define word-verses
+    (for/list ([v (in-list verses)])
+      (define ws (string-split v " "))
+      (set! word-count (+ word-count (length ws)))
+      ws))
+  (values word-count word-verses))
+
+(struct db-entry1 (card score wc ts) #:prefab)
+(define (db-entry<= x y)
+  (define (proj x)
+    (match-define (db-entry1 _ xs xwc xts) x)
+    (define xc (/ xs xwc))
+    (define same-day?
+      (<= (abs (- xts (current-seconds)))
+          (* 24 60 60)))
+    (cond
+      [(or same-day? (= xc 1))
+       ;; The time is big, so we put it later
+       xts]
+      [else
+       ;; This puts things with the same word count in the same spot
+       ;; and then the fractional part is the completion, so less
+       ;; complete things come first.
+       (+ xwc xc)]))
+  (<= (proj x) (proj y)))
 
 (define (make-memorize-http dir)
   (define db.rktd (build-path dir "db.rktd"))
@@ -15,44 +38,8 @@
   (define source.rktd (build-path dir "source.rktd"))
   (define source (list->vector (file->value source.rktd)))
 
-  (define (get-word-count verses)
-    (define word-count 0)
-    (define word-verses
-      (for/list ([v (in-list verses)])
-        (define ws (string-split v " "))
-        (set! word-count (+ word-count (length ws)))
-        ws))
-    (values word-count word-verses))
-
-  (struct db-entry1 (card score wc ts) #:prefab)
-  (define (db-entry<= x y)
-    (define (proj x)
-      (match-define (db-entry1 _ xs xwc xts) x)
-      (define xc (/ xs xwc))
-      (define same-day?
-        (<= (abs (- xts (current-seconds)))
-            (* 24 60 60)))
-      (cond
-        [(or same-day? (= xc 1))
-         ;; The time is big, so we put it later
-         xts]
-        [else
-         ;; This puts things with the same word count in the same spot
-         ;; and then the fractional part is the completion, so less
-         ;; complete things come first.
-         (+ xwc xc)]))
-    (<= (proj x) (proj y)))
-
   (define current-entry #f)
   (define other-entries #f)
-
-  (define (current-modify-score! f)
-    (match-define (db-entry1 card score wc ts) current-entry)
-    (set! current-entry
-          (struct-copy db-entry1 current-entry
-                       [ts (current-seconds)]
-                       [score (min wc (max 0 (f score)))]))
-    (save-db!))
 
   (define (sort-db db-l)
     (sort db-l db-entry<=))
@@ -138,11 +125,27 @@
                        (length wv)))))))
     (values (full #t)
             (full #f)))
-
-  (define (click! which?)
-    (current-modify-score! (if which? add1 sub1))
+  (define (click! success?)
+    (define f (if success? add1 sub1))
+    (match-define (db-entry1 card score wc ts) current-entry)
+    (set! current-entry
+          (struct-copy db-entry1 current-entry
+                       [ts (current-seconds)]
+                       [score (min wc (max 0 (f score)))]))
+    (save-db!)
     #t)
 
+  (for ([e (in-list (sort-db (cons current-entry other-entries)))])
+    (match-define (db-entry1 card score wc ts) e)
+    (match-define (list reference verses) (vector-ref source card))
+    (printf "~a\t~a\t~a\n"
+            (- wc score)
+            reference
+            (string-join verses (string #\u0085))))
+
+  (local-require web-server/dispatch
+                 pkg-index/official/jsonp
+                 (only-in xml cdata xexpr->string))
   (define-jsonp (api/next)
     (define-values (front back) (current-format))
     (hash 'front (xexpr->string front)
