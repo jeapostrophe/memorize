@@ -2,6 +2,7 @@
 (require racket/string
          racket/file
          racket/list
+         racket/format
          racket/match
          struct-define
          lux
@@ -46,7 +47,7 @@
        ["q" #f]
        [_ w]))])
 
-(define (make-memorize the-db)
+(define (make-memorize the-db completed)
   (define unsorted
     (for/list ([l (in-list (file->lines the-db))])
       (match-define (list (app string->number sc) ref vs) (string-split l "\t"))
@@ -66,18 +67,20 @@
     (define idx -1)
     (vappend*
      #:halign 'left
-     (cons (style (if reveal? 'bold 'normal) (text ref))
-           (for/list ([words (in-list verses-words)])
-             (vappend2 #:halign 'center
-                       (para* 80
-                              (for/list ([w (in-list words)])
-                                (set! idx (add1 idx))
-                                (if (memq idx lost-indexes)
-                                  (if reveal?
-                                    (style 'bold (text w))
-                                    (text (regexp-replace* #px"\\w" w "-")))
-                                  (text w))))
-                       (blank))))))
+     (list* (style 'inverse (text (~a "Completed " completed)))
+            (blank)
+            (style (if reveal? 'bold 'normal) (text ref))
+            (for/list ([words (in-list verses-words)])
+              (vappend2 #:halign 'center
+                        (para* 80
+                               (for/list ([w (in-list words)])
+                                 (set! idx (add1 idx))
+                                 (if (memq idx lost-indexes)
+                                   (if reveal?
+                                     (style 'bold (text w))
+                                     (text (regexp-replace* #px"\\w" w "-")))
+                                   (text w))))
+                        (blank))))))
 
   (define (save! success?)
     (define adj (if success? sub1 add1))
@@ -92,7 +95,7 @@
           (printf "~a\t~a\t~a\n" sc ref vs))))
 
     (make-memorize the-db))
-  
+
   (define hidden
     (memorize (render-card #f)
               (match-lambda
@@ -104,7 +107,7 @@
                 ['fail (save! #f)]
                 ['succ (save! #t)]
                 [_ revealed])))
-  
+
   hidden)
 
 (module+ main
@@ -114,4 +117,4 @@
   (call-with-chaos
    (make-raart)
    (λ ()
-     (fiat-lux (make-memorize the-db)))))
+     (fiat-lux (make-memorize the-db 0)))))
