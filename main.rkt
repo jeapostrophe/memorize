@@ -15,25 +15,6 @@
 
 (struct card (sc ref vs))
 
-(define-struct-define memorize-define memorize)
-(struct memorize (out trans)
-  #:methods gen:word
-  [(define (word-fps w) 0.0)
-   (define (word-label w ft) "Memorize")
-   (define (word-tick w) w)
-   (define (word-return w) (void))
-   (define (word-output w)
-     (memorize-define w)
-     out)
-   (define (word-event w e)
-     (memorize-define w)
-     (match e
-       [" " (trans 'reveal)]
-       ["<left>" (trans 'fail)]
-       ["<right>" (trans 'succ)]
-       ["q" #f]
-       [_ w]))])
-
 (define (make-memorize the-db completed)
   (define unsorted
     (for/list ([l (in-list (file->lines the-db))])
@@ -83,17 +64,24 @@
 
     (make-memorize the-db))
 
+  (define base (word #:fps 0.0 #:label "Memorize" #:return (void)))
   (define hidden
-    (memorize (render-card #f)
-              (match-lambda
-                ['reveal revealed]
-                [_ hidden])))
+    (word base
+          #:output (render-card #f)
+          #:event
+          (match-lambda
+            [" " revealed]
+            ["q" #f]
+            [_ hidden])))
   (define revealed
-    (memorize (render-card #t)
-              (match-lambda
-                ['fail (save! #f)]
-                ['succ (save! #t)]
-                [_ revealed])))
+    (word base
+          #:output (render-card #t)
+          #:event
+          (match-lambda
+            ["<left>" (save! #f)]
+            ["<right>" (save! #t)]
+            ["q" #f]
+            [_ revealed])))
 
   hidden)
 
