@@ -2,179 +2,119 @@
 (require racket/string
          racket/file
          racket/list
-         racket/match)
+         racket/format
+         racket/match
+         struct-define
+         lux
+         raart)
 
-(define (get-word-count verses)
-  (define word-count 0)
-  (define word-verses
-    (for/list ([v (in-list verses)])
-      (define ws (string-split v " "))
-      (set! word-count (+ word-count (length ws)))
-      ws))
-  (values word-count word-verses))
+(define NEL (string #\u0085))
 
-(struct db-entry1 (card score wc ts) #:prefab)
-(define (db-entry<= x y)
-  (define (proj x)
-    (match-define (db-entry1 _ xs xwc xts) x)
-    (define xc (/ xs xwc))
-    (define same-day?
-      (<= (abs (- xts (current-seconds)))
-          (* 24 60 60)))
-    (cond
-      [(or same-day? (= xc 1))
-       ;; The time is big, so we put it later
-       xts]
-      [else
-       ;; This puts things with the same word count in the same spot
-       ;; and then the fractional part is the completion, so less
-       ;; complete things come first.
-       (+ xwc xc)]))
-  (<= (proj x) (proj y)))
+(define (clamp m x M)
+  (min M (max m x)))
 
-(define (make-memorize-http dir)
-  (define db.rktd (build-path dir "db.rktd"))
+;; XXX move to raart
+(define (para mw s #:halign [halign 'left])
+  (para* mw (map text (string-split s " ")) #:halign halign))
+(define (para* mw rs #:halign [halign 'left])
+  (for/fold ([all-rows (list (blank))]
+             #:result
+             (vappend* #:halign halign (reverse all-rows)))
+            ([r (in-list rs)])
+    (match-define (cons last-row rows) all-rows)
+    (if (< (+ (raart-w last-row) (raart-w r)) mw)
+      (cons (happend last-row (text " ") r) rows)
+      (cons r all-rows))))
 
-  (define source.rktd (build-path dir "source.rktd"))
-  (define source (list->vector (file->value source.rktd)))
+(struct card (sc ref vs))
 
-  (define current-entry #f)
-  (define other-entries #f)
+(define-struct-define memorize-define memorize)
+(struct memorize (out trans)
+  #:methods gen:word
+  [(define (word-fps w) 0.0)
+   (define (word-label w ft) "Memorize")
+   (define (word-tick w) w)
+   (define (word-return w) (void))
+   (define (word-output w)
+     (memorize-define w)
+     out)
+   (define (word-event w e)
+     (memorize-define w)
+     (match e
+       [" " (trans 'reveal)]
+       ["<left>" (trans 'fail)]
+       ["<right>" (trans 'succ)]
+       ["q" #f]
+       [_ w]))])
 
-  (define (sort-db db-l)
-    (sort db-l db-entry<=))
-  (define (write-db!)
-    (write-to-file
-     (sort-db (cons current-entry other-entries))
-     db.rktd
-     #:exists 'replace))
-  (define (save-db!)
-    (write-db!)
-    (load-db!))
+(define (make-memorize the-db completed)
+  (define unsorted
+    (for/list ([l (in-list (file->lines the-db))])
+      (match-define (list (app string->number sc) ref vs) (string-split l "\t"))
+      (card sc ref vs)))
+  (define sorted (sort unsorted >= #:key card-sc))
+  (match-define (cons next after) sorted)
+  (match-define (card score ref vs) next)
+  (define verses (string-split vs NEL))
+  (define verses-words (map (λ (v) (string-split v " ")) verses))
+  (define word-count (apply + (map length verses-words)))
+  (define word-indexes (range word-count))
+  (define shuffled-indexes (shuffle word-indexes))
+  (define how-many-blank (clamp 0 (- word-count score) word-count))
+  (define lost-indexes (take shuffled-indexes how-many-blank))
 
-  (define (load-db!)
-    (define old
-      (if (file-exists? db.rktd)
-        (file->value db.rktd)
-        empty))
-    (define old-i->score*ts
-      (let ()
-        (struct db-entry (card score wc) #:prefab)
-        (for/hasheq ([de (in-list old)])
-          (match de
-            [(db-entry c s _)
-             (values c (cons s 0))]
-            [(db-entry1 card score _ ts)
-             (values card (cons score ts))]))))
+  (define (render-card reveal?)
+    (define idx -1)
+    (vappend*
+     #:halign 'left
+     (list* (style 'inverse (text (~a "Completed " completed)))
+            (blank)
+            (style (if reveal? 'bold 'normal) (text ref))
+            (for/list ([words (in-list verses-words)])
+              (vappend2 #:halign 'center
+                        (para* 80
+                               (for/list ([w (in-list words)])
+                                 (set! idx (add1 idx))
+                                 (if (memq idx lost-indexes)
+                                   (if reveal?
+                                     (style 'bold (text w))
+                                     (text (regexp-replace* #px"\\w" w "-")))
+                                   (text w))))
+                        (blank))))))
 
-    (define r
-      (sort-db
-       (for/list ([i (in-naturals)]
-                  [s (in-vector source)])
-         (match-define (list reference verses) s)
-         (define-values (wc _) (get-word-count verses))
-         (define-values (old-score old-ts)
-           (match (hash-ref old-i->score*ts i #f)
-             [(cons s t) (values s t)]
-             [#f (values 0 0)]))
-         (db-entry1 i old-score wc old-ts))))
+  (define (save! success?)
+    (define adj (if success? sub1 add1))
+    (define new-sorted
+      (sort (cons (card (adj score) ref vs) after)
+            >= #:key card-sc))
+    (with-output-to-file the-db
+      #:exists 'replace
+      (λ ()
+        (for ([c (in-list new-sorted)])
+          (match-define (card sc ref vs) c)
+          (printf "~a\t~a\t~a\n" sc ref vs))))
 
-    (set! current-entry (first r))
-    (set! other-entries (rest r))
+    (make-memorize the-db))
 
-    (write-db!))
-  (load-db!)
+  (define hidden
+    (memorize (render-card #f)
+              (match-lambda
+                ['reveal revealed]
+                [_ hidden])))
+  (define revealed
+    (memorize (render-card #t)
+              (match-lambda
+                ['fail (save! #f)]
+                ['succ (save! #t)]
+                [_ revealed])))
 
-  (define (current-format)
-    (match-define (db-entry1 card score _ _) current-entry)
-    (match-define (list reference verses)
-      (vector-ref source card))
-    (define-values (word-count word-verses)
-      (get-word-count verses))
-    (define word-indexes
-      (build-list word-count (λ (x) x)))
-    (define shuffled-indexes
-      (shuffle word-indexes))
-    (define lost-indexes
-      (take shuffled-indexes
-            (max 0 (min word-count score))))
-    (define (full lose?)
-      (define this-count 0)
-      `(div
-        (p ([class "reference"]) ,reference)
-        ,@(for/list ([wv (in-list word-verses)])
-            (begin0
-                `(p ([class "verse"])
-                    ,@(add-between
-                       (for/list ([w (in-list wv)]
-                                  [i (in-naturals this-count)])
-                         (if (memq i lost-indexes)
-                           (if lose?
-                             (cdata #f #f
-                                    (string-append*
-                                     (map (λ (c)
-                                            (if (char-alphabetic? c)
-                                              "&#8209;"
-                                              (string c)))
-                                          (string->list w))))
-                             `(span ([class "lost"]) ,w))
-                           w))
-                       " "))
-              (set! this-count
-                    (+ this-count
-                       (length wv)))))))
-    (values (full #t)
-            (full #f)))
-  (define (click! success?)
-    (define f (if success? add1 sub1))
-    (match-define (db-entry1 card score wc ts) current-entry)
-    (set! current-entry
-          (struct-copy db-entry1 current-entry
-                       [ts (current-seconds)]
-                       [score (min wc (max 0 (f score)))]))
-    (save-db!)
-    #t)
-
-  (for ([e (in-list (sort-db (cons current-entry other-entries)))])
-    (match-define (db-entry1 card score wc ts) e)
-    (match-define (list reference verses) (vector-ref source card))
-    (printf "~a\t~a\t~a\n"
-            (- wc score)
-            reference
-            (string-join verses (string #\u0085))))
-
-  (local-require web-server/dispatch
-                 pkg-index/official/jsonp
-                 (only-in xml cdata xexpr->string))
-  (define-jsonp (api/next)
-    (define-values (front back) (current-format))
-    (hash 'front (xexpr->string front)
-          'back (xexpr->string back)))
-  (define-jsonp (api/click/no)
-    (click! #f))
-  (define-jsonp (api/click/yes)
-    (click! #t))
-
-  (define-values (mem-dispatch mem-url)
-    (dispatch-rules
-     [("api" "next") api/next]
-     [("api" "click" "no") api/click/no]
-     [("api" "click" "yes") api/click/yes]))
-
-  mem-dispatch)
+  hidden)
 
 (module+ main
   (require racket/cmdline
-           racket/runtime-path
-           web-server/servlet-env)
-
-  (define-runtime-path static "static")
-
-  (command-line
-   #:program "memorize"
-   #:args (dir)
-   (serve/servlet (make-memorize-http dir)
-                  #:launch-browser? #f
-                  #:servlet-regexp #rx""
-                  #:extra-files-paths (list static)
-                  #:port 7332)))
+           raart/lux-chaos)
+  (define the-db (command-line #:program "memorize" #:args (db) db))
+  (call-with-chaos
+   (make-raart)
+   (λ ()
+     (fiat-lux (make-memorize the-db 0)))))
