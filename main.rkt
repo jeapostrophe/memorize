@@ -45,9 +45,11 @@
                                (for/list ([w (in-list words)])
                                  (set! idx (add1 idx))
                                  (if (memq idx lost-indexes)
-                                   (if reveal?
-                                     (style 'bold (text w))
-                                     (text (regexp-replace* #px"\\w" w "-")))
+                                   (style 'bold
+                                          (text
+                                           (if reveal?
+                                             w
+                                             (regexp-replace* #px"\\w" w "-"))))
                                    (text w))))
                         (blank))))))  
 
