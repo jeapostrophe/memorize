@@ -14,9 +14,13 @@
   (min M (max m x)))
 
 (define (string-pad s w c)
-  (string-append s (make-string (- w (string-length s)) c)))
+  (string-append (substring s 0 (min (string-length s) w))
+                 (make-string (max 0 (- w (string-length s))) c)))
 (define-syntax-rule (implies p q)
   (or (not p) q))
+(define (string-char? s)
+  (and (string? s)
+       (= 1 (string-length s))))
 
 (struct card (sc ref vs))
 
@@ -91,6 +95,7 @@
                                 [(eq? mode 'reveal)
                                  w]
                                 [guess
+                                 ;; XXX don't hide and force typing of punctuation
                                  (string-pad guess (string-length w) #\-)]
                                 [else
                                  (regexp-replace* #px"\\w" w "-")])))]
@@ -100,16 +105,29 @@
 
         (define (read-word idx->word this-idx)
           (define current
-              (word base
-                    #:output (render-card idx->word this-idx)
-                    #:return idx->word
-                    #:event
-                    (match-lambda
-                      ["C-M" #f]
-                      ["C-C" (quit)]
-                      ;; XXX capture input and write it out
-                      [_ current])))
-            current)
+            (word base
+                  #:output (render-card idx->word this-idx)
+                  #:return idx->word
+                  #:event
+                  (match-lambda
+                    ["C-M" #f]
+                    ["C-C" (quit)]
+                    ;; XXX make this less brittle and more about editting something
+                    [(? string-char? s)
+                     (read-word
+                      (hash-update idx->word this-idx
+                                   (λ (old)
+                                     (string-append old s)))
+                      this-idx)]
+                    ["<backspace>"
+                     (read-word
+                      (hash-update idx->word this-idx
+                                   (λ (old)
+                                     (substring old 0
+                                                (max 0 (sub1 (string-length old))))))
+                      this-idx)]
+                    [_ current])))
+          current)
         (define (check-words idx->word)
           (define revealed
             (word base
