@@ -50,7 +50,20 @@
           (next))
 
         (define verses (string-split vs NEL))
-        (define verses-words (map (λ (v) (string-split v " ")) verses))
+        (define verses-words
+          (for/list ([v (in-list verses)])
+            (define len (string-length v))
+            (define ps (regexp-match-positions* #px"\\W+" v))
+            (let loop ([i 0] [ps ps])
+              (match ps
+                [`()
+                 (cond [(= i len) `()]
+                       [else (list (cons (substring v i len) ""))])]
+                [(cons (cons start end) ps)
+                 (cons
+                  (cons (substring v i start)
+                        (substring v start end))
+                  (loop end ps))]))))
         (define word-count (apply + (map length verses-words)))
         (define word-indexes (range word-count))
         (define shuffled-indexes (shuffle word-indexes))
@@ -62,7 +75,8 @@
         (define (correct? idx->word)
           (define idx -1)
           (for/and ([words (in-list verses-words)])
-            (for/and ([w (in-list words)])
+            (for/and ([w*g (in-list words)])
+              (match-define (cons w g) w*g)
               (set! idx (add1 idx))
               (implies (memq idx lost-indexes)
                        (equal? w (hash-ref idx->word idx))))))
@@ -76,31 +90,34 @@
               (vappend2
                #:halign 'center
                (para* 80
-                      (for/list ([w (in-list words)])
+                      (for/list ([w*g (in-list words)])
+                        (match-define (cons w g) w*g)
                         (set! idx (add1 idx))
-                        (cond
-                          [(memq idx lost-indexes)
-                           (define guess (hash-ref idx->word idx #f))
-                           (with-drawing
-                             (if (eq? mode idx)
-                               'inverse
-                               'bold)
-                             (and (eq? mode 'reveal)
-                                  (if (equal? w guess)
-                                    'green
-                                    'red))
-                             #f
-                             (text
-                              (cond
-                                [(eq? mode 'reveal)
-                                 w]
-                                [guess
-                                 ;; XXX don't hide and force typing of punctuation
-                                 (string-pad guess (string-length w) #\-)]
-                                [else
-                                 (regexp-replace* #px"\\w" w "-")])))]
-                          [else
-                           (text w)])))
+                        (happend
+                         (cond
+                           [(memq idx lost-indexes)
+                            (define guess (hash-ref idx->word idx #f))
+                            (with-drawing
+                              (if (eq? mode idx)
+                                'inverse
+                                'bold)
+                              (and (eq? mode 'reveal)
+                                   (if (equal? w guess)
+                                     'green
+                                     'red))
+                              #f
+                              (text
+                               (cond
+                                 [(eq? mode 'reveal)
+                                  w]
+                                 [guess
+                                  ;; XXX don't hide and force typing of punctuation
+                                  (string-pad guess (string-length w) #\-)]
+                                 [else
+                                  (regexp-replace* #px"\\w" w "-")])))]
+                           [else
+                            (text w)])
+                         (text g))))
                (blank))))))
 
         (define (read-word idx->word this-idx)
