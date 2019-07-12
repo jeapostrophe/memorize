@@ -5,55 +5,45 @@
          raart
          "lib.rkt")
 
-(define (string-pad s w c)
-  (string-append (substring s 0 (min (string-length s) w))
-                 (make-string (max 0 (- w (string-length s))) c)))
 (define (string-char? s)
   (and (string? s)
        (= 1 (string-length s))))
 
 (define (memorize1 the-db)
   (let/ec next
-    (define-values (save-db! ref verses-words lost-indexes)
+    (define-values (save-db! lost-indexes cloze)
       (read-db the-db))
 
     (define base (word #:fps 0.0 #:label "Memorize" #:return #t))
 
     (define (render-card idx->word mode)
-      (define idx -1)
+      (define-values (ref content) (cloze idx->word))
       (vappend*
        #:halign 'left
        (list*
         (style (if (eq? mode 'reveal) 'bold 'normal) (text ref))
-        (for/list ([words (in-list verses-words)])
+        (for/list ([words (in-list content)])
           (vappend2
            #:halign 'center
            (para* 80
-                  (for/list ([w*g (in-list words)])
-                    (match-define (cons w g) w*g)
-                    (set! idx (add1 idx))
+                  (for/list ([cnt (in-list words)])
+                    (match-define (vector idx w g mcloze) cnt)
                     (happend
                      (cond
-                       [(memq idx lost-indexes)
-                        (define guess (hash-ref idx->word idx #f))
+                       [mcloze
                         (with-drawing
                           (if (eq? mode idx)
                             'inverse
                             'bold)
                           (and (eq? mode 'reveal)
-                               (if (equal? w guess)
+                               (if (equal? w mcloze)
                                  'green
                                  'red))
                           #f
                           (text
-                           (cond
-                             [(eq? mode 'reveal)
-                              w]
-                             [guess
-                              ;; XXX don't hide and force typing of punctuation
-                              (string-pad guess (string-length w) #\-)]
-                             [else
-                              (regexp-replace* #px"\\w" w "-")])))]
+                           (if (eq? mode 'reveal)
+                             w
+                             mcloze)))]
                        [else
                         (text w)])
                      (text g))))

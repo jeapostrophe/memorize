@@ -9,6 +9,9 @@
 
 (define (clamp m x M)
   (min M (max m x)))
+(define (string-pad s w c)
+  (string-append (substring s 0 (min (string-length s) w))
+                 (make-string (max 0 (- w (string-length s))) c)))
 
 (define-syntax-rule (implies p q)
   (or (not p) q))
@@ -65,8 +68,22 @@
         (implies (memq idx lost-indexes)
                  (equal? w (hash-ref idx->word idx))))))
 
+  (define (cloze idx->word)
+    (define idx -1)
+    (values
+     ref
+     (for/list ([words (in-list verses-words)])
+       (for/list ([w*g (in-list words)])
+         (match-define (cons w g) w*g)
+         (set! idx (add1 idx))
+         (vector
+          idx
+          w g
+          (and (memq idx lost-indexes)
+               (string-pad (hash-ref idx->word idx "")
+                           (string-length w) #\-)))))))
+
   (values
    save-db!
-   ref
-   verses-words
-   lost-indexes))
+   lost-indexes
+   cloze))
