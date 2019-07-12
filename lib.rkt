@@ -70,7 +70,7 @@
 
   (define (cloze idx->word)
     (define idx -1)
-    (values
+    (cons
      ref
      (for/list ([words (in-list verses-words)])
        (for/list ([w*g (in-list words)])
