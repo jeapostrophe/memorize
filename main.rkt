@@ -42,54 +42,59 @@
                  (text g))))
        (blank))))))
 
-(define-syntax-rule (fix id e) (letrec ([id e]) id))
 (define (memorize1 the-db)
   (let/ec next
     (define-values (save-db! lost-indexes cloze)
       (read-db the-db))
 
     (define base (word #:fps 0.0 #:label "Memorize" #:return #t))
-    (define (read-word idx->word this-idx)
-      (word/rec
-       current base
-       #:output (render-card (cloze idx->word) this-idx)
-       #:return idx->word
-       #:event
-       ;; XXX be able to go back a word
-       (match-lambda
-         ["C-M" #f]
-         ["C-C" (next #f)]
-         ;; XXX make this less brittle and more about editting something
-         [(? string-char? s)
-          (read-word
-           (hash-update idx->word this-idx
-                        (λ (old)
-                          (string-append old s)))
-           this-idx)]
-         ["<backspace>"
-          (read-word
-           (hash-update idx->word this-idx
-                        (λ (old)
-                          (substring old 0
-                                     (max 0 (sub1 (string-length old))))))
-           this-idx)]
-         [_ current])))
-    (define (check-words idx->word)
-      (word/rec
-       revealed base
-       #:output (render-card (cloze idx->word) 'reveal)
-       #:event
-       (match-lambda
-         ["C-M"
-          (save-db! idx->word)
-          (next #t)]
-         ["C-C" (next #f)]
-         [_ revealed])))
+    (define (read-word idx->guess before current)
+      (match current
+        ['()
+         (word/rec
+          this base
+          #:output (render-card (cloze idx->guess) 'reveal)
+          #:event
+          (match-lambda
+            ["C-M" (save-db! idx->guess)
+                   (next #t)]
+            ["C-C" (next #f)]
+            [_ this]))]
+        [(cons this-idx afterN)
+         (word/rec
+          this base
+          #:output (render-card (cloze idx->guess) this-idx)
+          #:return idx->guess
+          #:event
+          (match-lambda
+            ["["
+             (match before
+               [(cons before1 beforeN)
+                (read-word idx->guess beforeN (cons before1 current))]
+               ['()
+                (read-word idx->guess before current)])]
+            [(or "]" "C-M")
+             (read-word idx->guess (cons this-idx before) afterN)]
+            ["C-C" (next #f)]
+            ;; XXX make this less brittle and more about editting something
+            [(? string-char? s)
+             (read-word
+              (hash-update idx->guess this-idx
+                           (λ (old)
+                             (string-append old s))
+                           "")
+              before current)]
+            ["<backspace>"
+             (read-word
+              (hash-update idx->guess this-idx
+                           (λ (old)
+                             (substring old 0
+                                        (max 0 (sub1 (string-length old)))))
+                           "")
+              before current)]
+            [_ this]))]))
 
-    (define final-idx->word
-      (for/fold ([idx->word (hasheq)]) ([this-idx (in-list (sort lost-indexes <=))])
-        (fiat-lux (read-word (hash-set idx->word this-idx "") this-idx))))
-    (fiat-lux (check-words final-idx->word))))
+    (fiat-lux (read-word (hasheq) '() (sort lost-indexes <=)))))
 
 (define (memorizeN the-db to-do)
   (for/and ([completed (in-range to-do)])

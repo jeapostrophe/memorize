@@ -26,8 +26,8 @@
   (match-define (cons (card score ref vs) after)
     (sort unsorted >= #:key card-sc))
 
-  (define (save-db! idx->word)
-    (define success? (correct? idx->word))
+  (define (save-db! idx->guess)
+    (define success? (correct? idx->guess))
     (define adj (if success? sub1 add1))
     (define new-sorted
       (sort (cons (card (adj score) ref vs) after) >= #:key card-sc))
@@ -59,16 +59,16 @@
   (define how-many-blank (clamp 0 (- word-count score) word-count))
   (define lost-indexes (take shuffled-indexes how-many-blank))
 
-  (define (correct? idx->word)
+  (define (correct? idx->guess)
     (define idx -1)
     (for/and ([words (in-list verses-words)])
       (for/and ([w*g (in-list words)])
         (match-define (cons w g) w*g)
         (set! idx (add1 idx))
         (implies (memq idx lost-indexes)
-                 (equal? w (hash-ref idx->word idx))))))
+                 (equal? w (hash-ref idx->guess idx))))))
 
-  (define (cloze idx->word)
+  (define (cloze idx->guess)
     (define idx -1)
     (cons
      ref
@@ -80,7 +80,7 @@
           idx
           w g
           (and (memq idx lost-indexes)
-               (string-pad (hash-ref idx->word idx "")
+               (string-pad (hash-ref idx->guess idx "")
                            (string-length w) #\-)))))))
 
   (values
