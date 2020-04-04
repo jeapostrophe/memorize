@@ -21,7 +21,13 @@
 (define (read-db the-db)
   (define unsorted
     (for/list ([l (in-list (file->lines the-db))])
-      (match-define (list (app string->number sc) ref vs) (string-split l "\t"))
+      (match-define (list (app string->number f-sc) ref vs) (string-split l "\t"))
+      (define len (length (regexp-match-positions* #px"\\W+" vs)))
+      (define sc
+        (min (if (zero? f-sc)
+               len
+               f-sc)
+             len))
       (card sc ref vs)))
   (match-define (cons (card score ref vs) after)
     (sort unsorted >= #:key card-sc))
