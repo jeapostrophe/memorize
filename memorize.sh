@@ -11,31 +11,32 @@ rm -f t
 echo "$REF" > good
 echo "" >> good
 cp -f good bad
-echo "$CONTENT" | gsed -e 's//\n\n/g' >> good
+echo "$CONTENT" | sed -e 's//\n\n/g' >> good
 
 TOTAL=$(echo "$CONTENT" | wc -w)
 RAND=$((TOTAL - SCORE))
+RAND=$((RAND > 0 ? RAND : 1))
 
-echo "$CONTENT" | sed 's/[^A-Za-z]/ /g' | awk -v ORS='\n' '{ for (i = 1; i <= NF; i++) { print $i } }' | sort -R | head -"$RAND" > rands
+echo "$CONTENT" | sed 's/[^A-Za-z]/ /g' | awk -v ORS='\n' '{ for (i = 1; i <= NF; i++) { print $i } }' | sort -R | head -n "$RAND" > rands
 
 RCONTENT="$CONTENT"
 while read -r WORD ; do
   REPL=$(echo "$WORD" | sed 's/./-/g')
-  RCONTENT=$(echo "$RCONTENT" | gsed -e "s/\\b$WORD\\b/$REPL/")
+  RCONTENT=$(echo "$RCONTENT" | sed -e "s/\\b$WORD\\b/$REPL/")
 done < rands
 rm -f rands
 
-echo "$RCONTENT" | gsed -e 's//\n\n/g' >> bad
+echo "$RCONTENT" | sed -e 's//\n\n/g' >> bad
 
-"$EDITOR" bad
+clear
+"$EDITOR" -c "/-" -c "startreplace" bad
 
 if cmp good bad >/dev/null 2>&1; then
   SCORE=$((SCORE - 1))
 else
   SCORE=$((SCORE + 1))
-  clear
   cwdiff bad good
-  read -r
+  read -r IGNORED
 fi
 rm -f good bad
 
